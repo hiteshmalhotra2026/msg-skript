@@ -1,0 +1,171 @@
+########################################################################
+# +------------------------------------------------------------------+ #
+#                                                                    #
+#     __  __   ____    ____                                          #
+#    |  \/  | / ___|  / ___|                                         #
+#    | |\/| | \___ \ | |  _                                          #
+#    | |  | |  ___) || |_| |                                         #
+#    |_|  |_| |____/  \____|                                         #
+#                                                                    #
+#                                                                    #
+#              by HACK Studio  |  Developer: itzz_hitesh             #
+#          /msg /reply /r /msgtoggle /socialspy — Msg                #
+#                                                                    #
+# +------------------------------------------------------------------+ #
+########################################################################
+
+# ══════════════════════════════════════════
+#  Msg  |  Skript 2.6+
+#  /msg  /reply  /r  /msgtoggle  /socialspy
+# ══════════════════════════════════════════
+
+options:
+    prefix:         <##00ffdd>📩 &lMSG &7»&r 
+    sender-color:   <##00ffdd>
+    receiver-color: <##00ffdd>
+    msg-color:      &f
+
+    sound:          block.note_block.pling
+    sound-pitch:    2
+
+    no-player:      &cThat player is not online!
+    no-reply:       &cYou have nobody to reply to!
+    self-msg:       &cYou cannot message yourself!
+    msg-disabled:   &cThat player has disabled private messages!
+    toggled-off:    &cPrivate messages &ldisabled&r&c.
+    toggled-on:     &aPrivate messages &lenabled&r&a.
+
+    spy-prefix:     ✉ <##00FFDD>&lSPY &7»&r 
+
+# ──────────────────────────────────────────
+#  Core PM function
+#
+#  FIX #2 — Track bypass state so:
+#    a) the target is still notified (intentional delivery even when opted out)
+#    b) social spies see a [BYPASS] tag on the spy line (FIX #5)
+# ──────────────────────────────────────────
+function sendPM(sender: player, target: player, msg: text):
+
+    set {_bypass} to false
+
+    if {msgtoggle::%{_target}%} is false:
+        if {_sender} does not have permission "msg.bypass":
+            send "{@prefix} {@msg-disabled}" to {_sender}
+            stop
+        else:
+            # FIX #2 — Flag bypass so spy line can reflect it (FIX #5)
+            set {_bypass} to true
+            send "{@prefix} &7(Bypassing %{_target}%'s disabled PMs)" to {_sender}
+
+    set {reply::%{_sender}%} to {_target}
+    set {reply::%{_target}%} to {_sender}
+
+    set {_line} to "{@prefix} {@sender-color}%{_sender}% &8→ {@receiver-color}%{_target}% &7»&r {@msg-color}%{_msg}%"
+    send {_line} to {_sender}
+    send {_line} to {_target}
+
+    play sound "{@sound}" with volume 1 and pitch {@sound-pitch} to {_target}
+    send action bar "{@prefix} {@sender-color}%{_sender}% &7messaged you!" to {_target}
+
+    loop all players:
+        if {spy::%loop-player%} is true:
+            if loop-player is not {_sender}:
+                if loop-player is not {_target}:
+                    # FIX #5 — Append [BYPASS] tag when staff bypassed a disabled PM
+                    if {_bypass} is true:
+                        send "{@spy-prefix} &f%{_sender}% &8→ &f%{_target}% &7»&r &f%{_msg}% &7[BYPASS]" to loop-player
+                    else:
+                        send "{@spy-prefix} &f%{_sender}% &8→ &f%{_target}% &7»&r &f%{_msg}%" to loop-player
+
+# ──────────────────────────────────────────
+#  /msg
+#
+#  FIX #3 — Changed arg type from <offline player> to <player>
+#            so Skript rejects the argument outright if the player
+#            is not online, preventing partial-name offline matches.
+# ──────────────────────────────────────────
+command /msg [<player>] [<text>]:
+    aliases: /w, /tell, /pm, /message, /whisper
+    permission: msg.use
+    permission message: &cYou don't have permission!
+    trigger:
+        if arg-1 is not set:
+            send "{@prefix} &7Usage: &f/msg <player> <message>"
+            stop
+        if arg-2 is not set:
+            send "{@prefix} &7Usage: &f/msg <player> <message>"
+            stop
+        if arg-1 is not online:
+            send "{@prefix} {@no-player}"
+            stop
+        if arg-1 is player:
+            send "{@prefix} {@self-msg}"
+            stop
+        sendPM(player, arg-1, arg-2)
+
+# ──────────────────────────────────────────
+#  Reply helper — used by both /reply and /r
+# ──────────────────────────────────────────
+function handleReply(p: player, msg: text):
+    if {reply::%{_p}%} is not set:
+        send "{@prefix} {@no-reply}" to {_p}
+        stop
+    if {reply::%{_p}%} is not online:
+        send "{@prefix} {@no-player}" to {_p}
+        stop
+    if {_msg} is not set:
+        send "{@prefix} &7Usage: &f/reply <message>" to {_p}
+        stop
+    sendPM({_p}, {reply::%{_p}%}, {_msg})
+
+# ──────────────────────────────────────────
+#  /reply  &  /r
+#
+#  FIX #4 — Added permission: msg.use to both commands so players
+#            without messaging permission cannot bypass via /reply or /r
+# ──────────────────────────────────────────
+command /reply [<text>]:
+    permission: msg.use
+    permission message: &cYou don't have permission!
+    trigger:
+        handleReply(player, arg-1)
+
+command /r [<text>]:
+    permission: msg.use
+    permission message: &cYou don't have permission!
+    trigger:
+        handleReply(player, arg-1)
+
+# ──────────────────────────────────────────
+#  /msgtoggle
+#
+#  FIX #1 — Removed the faulty initialisation block that set the
+#            variable to true immediately before toggling, which meant
+#            the very first /msgtoggle call always disabled PMs.
+#            Logic is now: unset/true → disable (false), false → enable (true)
+#            This matches sendPM which blocks when the value is false.
+# ──────────────────────────────────────────
+command /msgtoggle:
+    aliases: /pmtoggle
+    trigger:
+        if {msgtoggle::%player%} is false:
+            set {msgtoggle::%player%} to true
+            send "{@prefix} {@toggled-on}"
+        else:
+            set {msgtoggle::%player%} to false
+            send "{@prefix} {@toggled-off}"
+
+# ──────────────────────────────────────────
+#  /socialspy
+# ──────────────────────────────────────────
+command /socialspy:
+    aliases: /spy
+    permission: msg.admin
+    permission message: &cYou don't have permission!
+    trigger:
+        if {spy::%player%} is not true:
+            set {spy::%player%} to true
+            send "{@spy-prefix} &aSocial spy &lenabled&r&a."
+        else:
+            set {spy::%player%} to false
+            send "{@spy-prefix} &cSocial spy &ldisabled&r&c."
